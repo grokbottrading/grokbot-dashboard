@@ -80,7 +80,7 @@ async function loadAcct([name,user]){
  const [ch,sp,fills,mids]=await Promise.all([post({type:"clearinghouseState",user}),post({type:"spotClearinghouseState",user}),post({type:"userFills",user}),post({type:"allMids"})]);
  const usdc=(sp.balances||[]).find(b=>b.coin==="USDC"), spot=usdc?+usdc.total:0;
  const perp=+(ch.marginSummary?.accountValue||0);
- const equity=spot>0?spot:perp; // spot already includes margin hold; never add both
+ const equity=Math.max(spot,perp); // spot already includes margin hold; never add both
  const positions=(ch.assetPositions||[]).map(p=>p.position).filter(p=>+p.szi!==0).map(p=>({acct:name,coin:p.coin,side:+p.szi>0?"LONG":"SHORT",size:Math.abs(+p.szi),entry:+p.entryPx,mark:+(mids[p.coin]||p.entryPx),upnl:+p.unrealizedPnl,liq:p.liquidationPx?+p.liquidationPx:null}));
  return {name,equity,positions,fills:(fills||[]).map(f=>({...f,acct:name}))};
 }
