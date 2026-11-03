@@ -62,6 +62,8 @@ th:first-child,td:first-child{text-align:left}
  <div class="row lbl"><span id="to900">—</span><span id="to1k">—</span></div>
 </div>
 
+<div id="spark" style="margin:6px 2px 10px"><div style="display:flex;justify-content:space-between;align-items:baseline;font-size:12px;color:var(--mut)"><span>Combined A+B+C equity · since Oct 30</span><span id="spkv">—</span></div><svg id="spk" viewBox="0 0 300 60" preserveAspectRatio="none" style="width:100%;height:60px;display:block;overflow:visible"></svg></div>
+
 <div class="accts" id="accts"></div>
 
 <div class="card"><div class="lbl">Open positions</div><div class="scroll"><table><thead><tr><th>Coin</th><th>Side</th><th>Size</th><th>Entry</th><th>Mark</th><th>uPnL</th><th>Liq</th></tr></thead><tbody id="pos"></tbody></table></div></div>
@@ -105,8 +107,33 @@ function render(d){
  $("pos").innerHTML=d.positions.length?d.positions.map(p=>`<tr><td><b>${p.coin}</b> <small>${p.acct}</small></td><td class="${p.side==="LONG"?"up":"dn"}">${p.side}</td><td>${px(p.size)}</td><td>${px(p.entry)}</td><td>${px(p.mark)}</td><td class="${cls(p.upnl)}">${usd(p.upnl)}</td><td>${px(p.liq)}</td></tr>`).join(""):`<tr><td colspan="7" class="empty">All flat — waiting for a 15m climax</td></tr>`;
  $("fills").innerHTML=d.fills.length?d.fills.map(f=>{const pn=+f.closedPnl-(+f.fee||0);return`<tr><td>${new Date(f.time).toLocaleString("en-US",{...tz,month:"short",day:"numeric",hour:"numeric",minute:"2-digit"})}</td><td>${f.acct}</td><td>${f.coin}</td><td class="${f.side==="B"?"up":"dn"}">${f.side==="B"?"BUY":"SELL"}</td><td>${px(+f.sz)}</td><td>${px(+f.px)}</td><td class="${cls(pn)}">${+f.closedPnl?usd(pn):"—"}</td></tr>`}).join(""):`<tr><td colspan="7" class="empty">No fills yet</td></tr>`;
 }
+
+// Combined equity sparkline (HL portfolio allTime accountValueHistory, read-only)
+const SPK_START=Date.UTC(2026,9,30,6); // Oct 30 00:00 MST: $888 baseline set
+let spkHist=[],spkLive=null;
+async function loadSpark(){try{
+ const hs=await Promise.all(ACCTS.map(([,user])=>post({type:"portfolio",user}).then(p=>(Object.fromEntries(p).allTime?.accountValueHistory||[]).map(([t,v])=>[t,+v]))));
+ const ts=[...new Set(hs.flat().map(x=>x[0]))].filter(t=>t>=SPK_START).sort((a,b)=>a-b);
+ const at=(h,t)=>{let v=0;for(const [x,y] of h){if(x<=t)v=y;else break}return v};
+ spkHist=[[SPK_START,INCEPTION],...ts.map(t=>[t,hs.reduce((s,h)=>s+at(h,t),0)])];drawSpark();
+}catch(e){}}
+function drawSpark(){
+ const pts=spkLive!=null?[...spkHist,[Date.now(),spkLive]]:spkHist; if(pts.length<2)return;
+ const W=300,H=60,t0=pts[0][0],t1=pts[pts.length-1][0],vs=pts.map(p=>p[1]).concat(INCEPTION);
+ const lo=Math.min(...vs),hi=Math.max(...vs),pad=(hi-lo)*.12||1;
+ const X=t=>(t-t0)/(t1-t0||1)*W,Y=v=>H-(v-lo+pad)/(hi-lo+2*pad)*H,yb=Y(INCEPTION);
+ const d=pts.map((p,i)=>(i?"L":"M")+X(p[0]).toFixed(1)+","+Y(p[1]).toFixed(1)).join("");
+ const cur=pts[pts.length-1][1],up=cur>=INCEPTION,col=up?"var(--up)":"var(--dn)",diff=cur-INCEPTION;
+ $("spk").innerHTML=`<defs><clipPath id="ca"><rect x="0" y="0" width="${W}" height="${yb}"/></clipPath><clipPath id="cb"><rect x="0" y="${yb}" width="${W}" height="${H}"/></clipPath></defs>
+ <path d="${d}L${W},${yb}L0,${yb}Z" fill="#2fd47e" opacity=".18" clip-path="url(#ca)"/><path d="${d}L${W},${yb}L0,${yb}Z" fill="#ff5470" opacity=".14" clip-path="url(#cb)"/>
+ <line x1="0" x2="${W}" y1="${yb}" y2="${yb}" stroke="#7d869c" stroke-width="1" stroke-dasharray="3 3" vector-effect="non-scaling-stroke"/>
+ <path d="${d}" fill="none" stroke="#2fd47e" stroke-width="1.6" clip-path="url(#ca)" vector-effect="non-scaling-stroke"/><path d="${d}" fill="none" stroke="#ff5470" stroke-width="1.6" clip-path="url(#cb)" vector-effect="non-scaling-stroke"/>
+ <text x="2" y="${yb-3}" fill="#7d869c" font-size="9">Start $888</text>`;
+ $("spkv").innerHTML=`<b style="color:var(--txt)">${usd(cur)}</b> <span style="color:${col}">${diff>=0?"+":""}${usd(diff)} (${(diff/INCEPTION*100).toFixed(2)}%)</span>`;
+}
+loadSpark();setInterval(loadSpark,60000);
 let busy=false;
-async function tick(){if(busy)return;busy=true;try{render(await loadAll());$("dot").className="dot";$("upd").textContent="Updated "+new Date().toLocaleTimeString("en-US",{...tz,hour:"numeric",minute:"2-digit",second:"2-digit"})+" MST"}catch(e){$("dot").className="dot err";$("upd").textContent="Reconnecting…"}busy=false}
+async function tick(){if(busy)return;busy=true;try{{const _d=await loadAll();render(_d);spkLive=_d.combined;drawSpark()}$("dot").className="dot";$("upd").textContent="Updated "+new Date().toLocaleTimeString("en-US",{...tz,hour:"numeric",minute:"2-digit",second:"2-digit"})+" MST"}catch(e){$("dot").className="dot err";$("upd").textContent="Reconnecting…"}busy=false}
 tick();setInterval(tick,2000);
 
 // Music: 50 Cent – Piggy Bank
